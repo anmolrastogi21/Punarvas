@@ -17,11 +17,13 @@ Integrated red zone and relocation planning system. Decision support for identif
 - Funding slider that matches funded villages to relocation sites and flags those needing a field survey
 - Export of the relocation plan as JSON
 - Light and dark mode
+- **SHAP analysis tab:** shows what drives each village's priority score (SHAP charts, a heatmap of all villages, and automatic plain-language explanations)
 
 ## Project structure
 
 ```
-app.py              Streamlit wrapper that embeds the app
+app.py              Streamlit app: map tab + SHAP analysis tab
+core.py             Scoring engine (Python port of the map logic) and SHAP values
 index.html          The planning tool (React + MapLibre GL + Tailwind, loaded from CDNs)
 requirements.txt    Python dependencies for Streamlit
 assets/             Logo and favicon
@@ -44,6 +46,10 @@ You can also open `index.html` directly in a browser. No Python is needed for th
 **Streamlit Community Cloud:** push this repo to GitHub, then at [share.streamlit.io](https://share.streamlit.io) choose *Create app*, select the repo and branch, and set the main file to `app.py`.
 
 **GitHub Pages (static):** in the repo go to *Settings, Pages*, set the source to the `main` branch and root folder. `index.html` is served as the site.
+
+## SHAP analysis
+
+The second tab recomputes the ranking in Python (`core.py`, checked to match the map's numbers) and explains it with [SHAP](https://github.com/shap/shap). The priority score is additive, so a village's SHAP values are the RPI points each factor adds or removes compared with the average village, and they sum exactly to the village's score. The tab has its own scenario controls and is not linked to the sliders on the map.
 
 ## Map API key (CARTO)
 
