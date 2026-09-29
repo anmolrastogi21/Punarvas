@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 --bg:#e9edf1;--panel:#fff;--ink:#1c2733;--mut:#5f6f7e;--line:#c9d2da;--head:#1f4e79;--acc:#2a6fbb;
@@ -34,11 +35,19 @@ tr.on{background:color-mix(in srgb,var(--acc) 18%,transparent)}
 .maplibregl-canvas{position:absolute;left:0;top:0}
 .maplibregl-marker{position:absolute;top:0;left:0;cursor:pointer}
 .hm{position:relative;width:0;height:0}
-.hm i{position:absolute;transform:translate(-50%,-50%);border-radius:50%;display:block}
-.hm b,.sm b{position:absolute;left:12px;top:-8px;white-space:nowrap;font-size:11px;font-weight:600;text-shadow:0 0 3px var(--mapbg),0 0 3px var(--mapbg),0 0 3px var(--mapbg)}
+.hm i{position:absolute;transform:translate(-50%,-50%);border-radius:50%;display:block;box-shadow:0 0 0 2px rgba(255,255,255,.92),0 2px 7px rgba(0,0,0,.45);transition:transform .15s}
+.hm:hover i{transform:translate(-50%,-50%) scale(1.15)}
+.hm.red i::after{content:"";position:absolute;inset:-7px;border-radius:50%;border:2px solid var(--imm);animation:pl 2.2s ease-out infinite;pointer-events:none}
+@keyframes pl{0%{transform:scale(.75);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+@media (prefers-reduced-motion:reduce){.hm.red i::after{animation:none;opacity:.5}}
+.hm b,.sm b{position:absolute;top:-9px;white-space:nowrap;font-size:11px;font-weight:600;line-height:16px;color:var(--ink);background:color-mix(in srgb,var(--panel) 90%,transparent);padding:0 7px;border-radius:9px;box-shadow:0 1px 4px rgba(0,0,0,.3);pointer-events:none}
 .sm{position:relative;width:0;height:0}
-.sm i{position:absolute;transform:translate(-50%,-50%);width:13px;height:13px;background:var(--ok);border:2px solid var(--panel);display:block}
-.sm b{color:var(--ok);left:10px}
+.sm i{position:absolute;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:6px;background:var(--ok);border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font:700 12px/1 sans-serif;font-style:normal}
+.sm i::before{content:"\2302"}
+.sm b{color:var(--ok);left:16px}
+.maplibregl-ctrl-attrib{font-size:10px}
+:root[data-theme=dark] .maplibregl-ctrl-group{background:#1b232c}
+:root[data-theme=dark] .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1)}
 </style>
 </head>
 <body>
@@ -109,47 +118,80 @@ function SvgMap({L,lay,sel,setSel}){
   </svg>`;
 }
 
+/* CARTO basemaps need a free API key (carto.com/basemaps/apikey). app.py swaps the placeholder below for the
+   key stored in Streamlit secrets. With no key the map falls back to Esri street tiles (OpenStreetMap's own servers block embedded apps). */
+const CK='__CARTO_KEY__',HASK=!!CK&&CK.indexOf('__')!==0;
+const cartoUrl=n=>['a','b','c','d'].map(x=>'https://'+x+'.basemaps.cartocdn.com/rastertiles/'+n+'/{z}/{x}/{y}.png?key='+encodeURIComponent(CK));
+const ESRI=['https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'];
+const BASES={
+ light:{t:HASK?cartoUrl('voyager'):ESRI,z:19,a:HASK?'&copy; OpenStreetMap contributors &copy; CARTO':'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'},
+ dark:{t:HASK?cartoUrl('dark_all'):ESRI,z:19,a:HASK?'&copy; OpenStreetMap contributors &copy; CARTO':'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'},
+ sat:{t:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],z:18,a:'Imagery &copy; Esri, Maxar, Earthstar Geographics'},
+ lab:{t:['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],z:18,a:'Labels &copy; Esri'},
+ topo:{t:['a','b','c'].map(x=>'https://'+x+'.tile.opentopomap.org/{z}/{x}/{y}.png'),z:17,a:'&copy; OpenStreetMap contributors, SRTM | &copy; OpenTopoMap (CC-BY-SA)'}};
+const BOUNDS=[[76.07,11.45],[76.25,11.63]];
+const actBase=(b,dark)=>b==='map'?(dark?'dark':'light'):b;
+const baseStyle=act=>({version:8,
+  sources:Object.fromEntries(Object.entries(BASES).map(([k,v])=>[k,{type:'raster',tiles:v.t,tileSize:256,maxzoom:v.z,attribution:v.a}])),
+  layers:[{id:'bg',type:'background',paint:{'background-color':'#e4e9dd'}}].concat(Object.keys(BASES).map(k=>({id:'b-'+k,type:'raster',source:k,layout:{visibility:(k===act||(k==='lab'&&act==='sat'))?'visible':'none'}})))});
+
 function MapView({L,lay,dark,sel,setSel,rain,alert}){
-  const el=useRef(),map=useRef(),mk=useRef([]),[ready,setReady]=useState(false),[bad,setBad]=useState(false);
+  const el=useRef(),map=useRef(),mk=useRef([]),[ready,setReady]=useState(false),[bad,setBad]=useState(false),[base,setBase]=useState('map');
   useEffect(()=>{
     let m,ok=false;
-    try{m=map.current=new maplibregl.Map({container:el.current,attributionControl:false,
-      style:{version:8,sources:{},layers:[{id:'bg',type:'background',paint:{'background-color':'#e4e9dd'}}]},
-      bounds:[[76.07,11.45],[76.25,11.63]],fitBoundsOptions:{padding:24}})}catch(e){setBad(true);return}
-    const t=setTimeout(()=>{if(!ok)setBad(true)},6000);
+    try{m=map.current=new maplibregl.Map({container:el.current,attributionControl:false,style:baseStyle(actBase('map',dark)),
+      bounds:BOUNDS,fitBoundsOptions:{padding:24}})}catch(e){setBad(true);return}
+    const t=setTimeout(()=>{if(!ok)setBad(true)},20000);
+    m.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
+    m.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');
+    m.on('error',()=>{});
     m.on('load',()=>{try{ok=true;
+      const cm=['match',['get','hz'],'landslide','#c8402f','flood','#2a6fbb','#7b4fa8'];
       m.addSource('z',{type:'geojson',data:{type:'FeatureCollection',features:Object.entries(ZONES).map(([k,c])=>({type:'Feature',properties:{hz:k},geometry:{type:'Polygon',coordinates:[c.concat([c[0]])]}}))}});
       m.addSource('rv',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:RIVER}}});
-      m.addLayer({id:'rv',type:'line',source:'rv',paint:{'line-color':'#5b9bd0','line-width':2.5}});
-      m.addLayer({id:'zf',type:'fill',source:'z',paint:{'fill-color':['match',['get','hz'],'landslide','#c8402f','flood','#2a6fbb','#7b4fa8'],'fill-opacity':.32}});
-      m.addLayer({id:'zl',type:'line',source:'z',paint:{'line-color':['match',['get','hz'],'landslide','#c8402f','flood','#2a6fbb','#7b4fa8'],'line-width':1.5}});
-      SITES.forEach(s=>{const d=document.createElement('div');d.className='sm';d.innerHTML='<i></i><b>'+s.name.split(' (')[0]+'</b>';new maplibregl.Marker({element:d}).setLngLat([s.lon,s.lat]).addTo(m)});
+      m.addSource('rt',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      m.addLayer({id:'rv',type:'line',source:'rv',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#3d8fd6','line-width':3,'line-opacity':.9}});
+      m.addLayer({id:'zf',type:'fill',source:'z',paint:{'fill-color':cm,'fill-opacity':.3}});
+      m.addLayer({id:'zl',type:'line',source:'z',paint:{'line-color':cm,'line-width':2}});
+      m.addLayer({id:'rtc',type:'line',source:'rt',layout:{'line-cap':'round'},paint:{'line-color':'#ffffff','line-width':['case',['==',['get','s'],1],6.5,4.5],'line-opacity':.7}});
+      m.addLayer({id:'rt',type:'line',source:'rt',layout:{'line-cap':'round'},paint:{'line-color':'#1f9d5c','line-width':['case',['==',['get','s'],1],3.5,2.2],'line-dasharray':[2,1.6]}});
+      SITES.forEach(x=>{const d=document.createElement('div');d.className='sm';d.title=x.name+' (capacity '+x.cap+' households)';d.innerHTML='<i></i><b>'+x.name.split(' (')[0]+'</b>';new maplibregl.Marker({element:d}).setLngLat([x.lon,x.lat]).addTo(m)});
       setReady(true);}catch(e){setBad(true)}
     });
     return ()=>{clearTimeout(t);try{m.remove()}catch(e){}};
   },[]);
   useEffect(()=>{
-    if(!ready)return;const m=map.current,on=Object.keys(lay).filter(k=>lay[k]);
+    if(!ready)return;const m=map.current,on=Object.keys(lay).filter(k=>lay[k]),act=actBase(base,dark);
+    Object.keys(BASES).forEach(k=>m.setLayoutProperty('b-'+k,'visibility',(k===act||(k==='lab'&&act==='sat'))?'visible':'none'));
     m.setPaintProperty('bg','background-color',dark?'#1c2622':'#e4e9dd');
-    m.setPaintProperty('rv','line-color',dark?'#3f7fb0':'#5b9bd0');
     ['zf','zl'].forEach(id=>m.setFilter(id,['in',['get','hz'],['literal',on]]));
-  },[ready,dark,lay]);
+  },[ready,dark,lay,base]);
+  useEffect(()=>{
+    if(!ready)return;
+    map.current.getSource('rt').setData({type:'FeatureCollection',features:L.filter(x=>x.inb&&x.site).map(x=>({type:'Feature',properties:{s:x.id===sel?1:0},geometry:{type:'LineString',coordinates:[[x.lon,x.lat],[x.site.lon,x.site.lat]]}}))});
+  },[ready,L,sel]);
   useEffect(()=>{
     if(!ready)return;
     mk.current.forEach(x=>x.remove());mk.current=[];
     L.forEach(x=>{
-      const d=document.createElement('div'),s=Math.round(9+Math.sqrt(x.hh)*1.1);
-      d.className='hm';d.onclick=()=>setSel(x.id);
-      d.innerHTML='<i style="width:'+s+'px;height:'+s+'px;background:'+TC[x.tier]+';border:'+(x.id===sel?'3px solid var(--ink)':'2px '+(x.red?'dashed':'solid')+' var(--ink)')+'"></i><b style="color:var(--ink)">'+x.name+'</b>';
+      const d=document.createElement('div'),s=Math.round(10+Math.sqrt(x.hh)*1.1);
+      d.className='hm'+(x.red?' red':'');d.onclick=()=>setSel(x.id);
+      d.title=x.name+': '+x.hh+' households, '+x.tier+' (RPI '+x.rpi+')'+(x.red?', Red Zone':'');
+      d.innerHTML='<i style="width:'+s+'px;height:'+s+'px;background:'+TC[x.tier]+';border:'+(x.id===sel?'3px solid var(--ink)':'2px '+(x.red?'dashed':'solid')+' var(--ink)')+'"></i><b style="left:'+(Math.round(s/2)+7)+'px">'+x.name+'</b>';
       mk.current.push(new maplibregl.Marker({element:d}).setLngLat([x.lon,x.lat]).addTo(map.current));
     });
   },[ready,L,sel]);
+  const fit=()=>{if(map.current)map.current.fitBounds(BOUNDS,{padding:24})};
+  const glass={background:'color-mix(in srgb,var(--panel) 92%,transparent)'};
   return h`<div class="relative flex-1 min-h-[340px] box overflow-hidden">
     ${bad?h`<${SvgMap} L=${L} lay=${lay} sel=${sel} setSel=${setSel}/>`:h`<div ref=${el} class="absolute inset-0"></div>`}
-    <div class="box absolute top-2 left-2 px-2 py-1 text-[12px] z-10">Rainfall forecast: <b>${rain} mm</b> in 24 h, alert <b style=${{color:AC[alert]}}>${alert}</b></div>
-    <div class="box absolute bottom-2 left-2 px-2 py-1 text-[11px] z-10 leading-5">
-      <span style=${{color:'var(--ls)'}}>■</span> landslide path <span style=${{color:'var(--fl)'}}>■</span> flood <span style=${{color:'var(--cb)'}}>■</span> cloudburst <span style=${{color:'var(--ok)'}}>■</span> candidate site<br/>
-      Dot colour = priority, size = households, dashed edge = Red Zone. Zone shapes are approximate.</div>
+    <div class="box absolute top-2 left-2 px-2 py-1 text-[12px] z-10 flex items-center gap-2" style=${glass}><span style=${{width:9,height:9,borderRadius:'50%',background:AC[alert],display:'inline-block'}}></span><span>Rainfall forecast: <b>${rain} mm</b> in 24 h, alert <b style=${{color:AC[alert]}}>${alert}</b></span></div>
+    ${!bad&&h`<div class="box absolute top-2 right-2 z-10 flex overflow-hidden text-[12px]" style=${glass}>
+      ${[['map','Map'],['sat','Satellite'],['topo','Terrain']].map(([k,n])=>h`<button key=${k} onClick=${()=>setBase(k)} style=${{border:0,borderRadius:0,background:base===k?'var(--acc)':'transparent',color:base===k?'#fff':'var(--ink)'}}>${n}</button>`)}
+      <button title="Fit all villages" onClick=${fit} style=${{border:0,borderRadius:0,borderLeft:'1px solid var(--line)',background:'transparent'}}>Fit</button></div>`}
+    <div class="box absolute bottom-2 left-2 px-2 py-1 text-[11px] z-10 leading-5" style=${{...glass,maxWidth:'calc(100% - 70px)'}}>
+      <span style=${{color:'var(--ls)'}}>■</span> landslide path <span style=${{color:'var(--fl)'}}>■</span> flood <span style=${{color:'var(--cb)'}}>■</span> cloudburst <span style=${{color:'var(--ok)'}}>■</span> candidate site <span style=${{color:'var(--ok)'}}>╌</span> proposed move<br/>
+      Dot colour = priority, size = households, pulsing dashed edge = Red Zone. Zone shapes are approximate.</div>
   </div>`;
 }
 
